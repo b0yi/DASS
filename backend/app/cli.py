@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 
 def run_scheduler() -> None:
     """啟動 Scheduler 主迴圈。
-
-    # TODO:
     #   1. 取得 settings，設定 logging
     #   2. 取得 queue_client
     #   3. 無限迴圈：
@@ -27,14 +25,28 @@ def run_scheduler() -> None:
     #      c. 執行 recover_orphans()
     #      d. 執行 dispatch_due_jobs()
     #      e. sleep(settings.scheduler_interval_seconds)
+    # TODO:
+    #   完成這次 MVP 後去測試 scheduler() 是否會變成效能瓶頸
     """
-    raise NotImplementedError
+    settings = get_settings()
+    configure_logging(level=settings.log_level)
+
+    queue_client = get_queue_client()
+
+    while True:
+        try:
+            with SessionLocal() as db:
+                service = SchedulerService(db, queue_client, settings.worker_visibility_timeout_seconds)
+                service.recover_orphans()
+                service.dispatch_due_jobs()
+        except Exception as e:
+            logger.error(f"Scheduler cycle failed: {e}")
+        finally:
+            time.sleep(settings.scheduler_interval_seconds)
 
 
 def run_worker() -> None:
     """啟動 Worker 主迴圈。
-
-    # TODO:
     #   1. 取得 settings，設定 logging
     #   2. 取得 queue_client
     #   3. 無限迴圈：
@@ -48,18 +60,47 @@ def run_worker() -> None:
     #         - 成功後 queue.delete_message(message.receipt_handle)
     #         - 捕獲 Exception 並 log
     """
-    raise NotImplementedError
+    settings = get_settings()
+    configure_logging(level=settings.log_level)
+
+    queue_client = get_queue_client()
+
+    while True:
+        messages = queue_client.receive_tasks(max_messages=1, wait_time_seconds=10)
+        if not messages:
+            continue
+
+        for message in messages:
+            try:
+                payload = json.loads(message.body)
+                task_id = payload.get("task_id")
+                # TODO: 
+                # 當 worker 一多，每個 worker 都跟唯一的 DB 建立連線，同時還有 scheduler 跟 api server，會造成 connection pool 很快就用光。
+                with SessionLocal() as db:
+                    service = WorkerService(db, queue_client)
+                    service.process_task_id(task_id)
+                
+                queue_client.delete_message(message.receipt_handle)
+            except Exception as e:
+                logger.error(f"Worker failed to process message: {e}")
 
 
 def main() -> None:
     """CLI 入口：根據 sys.argv[1] 分派到 scheduler 或 worker。
-
-    # TODO:
     #   - 'scheduler' → run_scheduler()
     #   - 'worker'    → run_worker()
     #   - 其他        → raise SystemExit
     """
-    raise NotImplementedError
+    if len(sys.argv) < 2:
+        raise SystemExit("Usage: python -m app.cli scheduler|worker")
+
+    command = sys.argv[1]
+    if command == "scheduler":
+        run_scheduler()
+    elif command == "worker":
+        run_worker()
+    else:
+        raise SystemExit("Unknown command: " + command)
 
 
 if __name__ == "__main__":
