@@ -38,6 +38,9 @@ def run_scheduler() -> None:
     LOCK_KEY = 114514
 
     with lock_engine.connect() as lock_conn:
+        service = SchedulerService(
+            SessionLocal, queue_client, settings.worker_visibility_timeout_seconds
+        )
         while True:
             is_leader = lock_conn.execute(
                 text("SELECT pg_try_advisory_lock(:key)"), {"key": LOCK_KEY}
@@ -45,12 +48,9 @@ def run_scheduler() -> None:
             if is_leader:
                 logger.info("[LEADER] Running scheduler cycle")
                 try:
-                    with SessionLocal() as db:
-                        service = SchedulerService(
-                            db, queue_client, settings.worker_visibility_timeout_seconds
-                        )
-                        service.recover_orphans()
-                        service.dispatch_due_jobs()
+                    service.sync_jobs()
+                    service.recover_orphans()
+                    service.dispatch_due_jobs()
                 except Exception as e:
                     logger.error(f"[LEADER]Scheduler cycle failed: {e}")
             else:
@@ -59,6 +59,7 @@ def run_scheduler() -> None:
 
 
 import concurrent.futures
+
 
 def run_worker() -> None:
     """啟動 Worker 主迴圈：支援 normal queue 優先、多 Queue、平行處理 containers。"""
@@ -181,9 +182,9 @@ def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: python -m app.cli [scheduler|worker]")
         sys.exit(1)
-        
+
     command = sys.argv[1]
-    
+
     if command == "scheduler":
         run_scheduler()
     elif command == "worker":

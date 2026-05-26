@@ -30,6 +30,8 @@ def _job(db_session, **overrides):
     return job
 
 
+from sqlalchemy.orm import sessionmaker
+
 class TestSchedulerService:
     """Tests for SchedulerService dispatch and orphan recovery."""
 
@@ -37,8 +39,14 @@ class TestSchedulerService:
         """Scheduler should dispatch a job when next_fire_at has passed."""
         queue = MemoryQueueClient()
         job = _job(db_session)
-        service = SchedulerService(db_session, queue)
+        
+        # 建立一個測試用的連線工廠，綁定到目前的測試資料庫引擎
+        factory = sessionmaker(bind=db_session.get_bind())
+        service = SchedulerService(factory, queue)
+        
+        service.sync_jobs()
         created = service.dispatch_due_jobs()
+        
         assert created == 1
         tasks = db_session.query(Task).filter(Task.job_id == job.id).all()
         assert len(tasks) == 1
@@ -52,8 +60,13 @@ class TestSchedulerService:
         )
         db_session.add(running)
         db_session.commit()
-        service = SchedulerService(db_session, queue)
+        
+        factory = sessionmaker(bind=db_session.get_bind())
+        service = SchedulerService(factory, queue)
+        
+        service.sync_jobs()
         service.dispatch_due_jobs()
+        
         tasks = db_session.query(Task).filter(Task.job_id == job.id).all()
         assert len(tasks) == 1
 
@@ -71,8 +84,14 @@ class TestSchedulerService:
         )
         db_session.add(task)
         db_session.commit()
-        service = SchedulerService(db_session, queue)
+        
+        factory = sessionmaker(bind=db_session.get_bind())
+        service = SchedulerService(factory, queue)
+        
+        service.sync_jobs()
         recovered = service.recover_orphans()
+        
         assert recovered == 1
-        updated = db_session.get(Task, task.id)
-        assert updated.status == "pending"
+        db_session.refresh(task)
+        assert task.status == "pending"
+
