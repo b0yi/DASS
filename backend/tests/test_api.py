@@ -111,3 +111,4 @@ def test_list_jobs_supports_filters_and_pagination(client):
     assert body["total"] == 3
     assert body["total_pages"] == 2
     assert len(body["items"]) == 2
+
