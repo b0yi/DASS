@@ -59,10 +59,15 @@ class TestSchedulerService:
         normal_queue = MemoryQueueClient()
         scheduled_queue = MemoryQueueClient()
         _job(db_session)
-        service = SchedulerService(db_session, normal_queue, scheduled_queue)
+        
+        factory = sessionmaker(bind=db_session.get_bind())
+        # 新的實作中 SchedulerService 只需要傳入 scheduled_queue
+        service = SchedulerService(factory, scheduled_queue)
+        service.sync_jobs()
 
         service.dispatch_due_jobs()
 
+        # normal_queue 沒有傳入，一定是空的。scheduled_queue 會有派發的任務。
         assert normal_queue._queue.empty()
         assert scheduled_queue._queue.qsize() == 1
 
@@ -107,8 +112,8 @@ class TestSchedulerService:
         recovered = service.recover_orphans()
 
         assert recovered == 1
-        updated = db_session.get(Task, task.id)
-        assert updated.status == "pending"
+        db_session.refresh(task)
+        assert task.status == "pending"
 
     def test_orphan_recovery_does_not_resend_message(self, db_session):
         """recover_orphans 不該主動重塞 message；SQS visibility 過期會自己 surface。"""

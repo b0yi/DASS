@@ -66,7 +66,8 @@ class SchedulerService:
             tasks = task_repo.list_expired_running(now)
             for task in tasks:
                 task_repo.mark_running_expired_pending(task)
-                self.queue.send_task(str(task.id))
+                # 這裡依循 main 的邏輯，拿掉 self.queue.send_task()
+
         return len(tasks)
 
     def dispatch_due_jobs(self) -> int:
