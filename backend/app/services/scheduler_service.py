@@ -73,14 +73,35 @@ class SchedulerService:
     def dispatch_due_jobs(self) -> int:
         now = utcnow()
         counter = 0
+        start_time = now.timestamp()
+
+        logger.info(
+            f"[Scheduler] dispatch_due_jobs started. Heap size: {len(self._heap)}"
+        )
+
         while self._heap:
             next_time, job_id = self._heap[0]
             if next_time > now.timestamp():
+                logger.info(
+                    f"[Scheduler] Break! next_time={next_time} > now={now.timestamp()} Diff={next_time - now.timestamp()}"
+                )
                 break
             next_time, job_id = heapq.heappop(self._heap)
+
             job = self._job_cache.get(job_id)
-            if job is None or job.next_fire_at.timestamp() != next_time:
+            if job is None:
+                logger.info(
+                    f"[Scheduler] Job {job_id} not found in cache (might be deleted/disabled)."
+                )
                 continue
+
+            # 處理 Float 精度誤差，容忍 0.001 秒差異
+            if abs(job.next_fire_at.timestamp() - next_time) > 0.001:
+                logger.info(
+                    f"[Scheduler] Job {job_id} next_fire_at mismatch. Cache: {job.next_fire_at.timestamp()}, Heap: {next_time}. Skipping old heap node."
+                )
+                continue
+
             with self.session_maker() as db:
                 self.job = JobRepository(db)
                 self.task = TaskRepository(db)
@@ -99,6 +120,13 @@ class SchedulerService:
                 # 只有真正發射成功才算 counter
                 if success:
                     counter += 1
+
+        elapsed = utcnow().timestamp() - start_time
+        if counter > 0:
+            logger.info(
+                f"[Scheduler] Dispatched {counter} jobs in {elapsed:.3f} seconds. Throughput: {counter / elapsed:.2f} jobs/s"
+            )
+
         return counter
 
     def _dispatch_job(self, job, now: datetime) -> bool:
