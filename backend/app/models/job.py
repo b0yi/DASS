@@ -88,3 +88,11 @@ class Job(Base):
         secondaryjoin="Job.id == job_dependencies.c.upstream_job_id",
         back_populates="downstream_jobs",
     )
+
+    @property
+    def upstream_job_ids(self) -> list[str]:
+        return [str(job.id) for job in self.upstream_jobs]
+
+    @property
+    def downstream_job_ids(self) -> list[str]:
+        return [str(job.id) for job in self.downstream_jobs]
