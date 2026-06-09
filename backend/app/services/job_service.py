@@ -136,19 +136,7 @@ class JobService:
             )
             job.downstream_jobs.extend(downstreams)
 
-        job = self.jobs.create(job)
-
-        if job.job_type == "normal" and job.enabled:
-            task = Task(
-                job_id=job.id,
-                status="pending",
-                trigger_type="scheduled",
-                retry_count=0,
-            )
-            task = self.tasks.create(task)
-            get_normal_queue_client().send_task(str(task.id))
-
-        return job
+        return self.jobs.create(job)
 
     def list_jobs(
         self,
@@ -225,7 +213,6 @@ class JobService:
         for key, value in data.items():
             if key not in ("upstream_job_ids", "downstream_job_ids"):
                 setattr(job, key, value)
-
         if "cron_expression" in data:
             job.cron_expression = normalized_cron_expression
 
