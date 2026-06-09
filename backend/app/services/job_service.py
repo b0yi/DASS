@@ -136,7 +136,20 @@ class JobService:
             )
             job.downstream_jobs.extend(downstreams)
 
-        return self.jobs.create(job)
+        job = self.jobs.create(job)
+
+        # 建立普通的單次任務 (normal job) 時，如果它沒有任何上游依賴，就直接發射它
+        if job.job_type == "normal" and job.enabled and not job.upstream_jobs:
+            task = Task(
+                job_id=str(job.id),
+                status="pending",
+                trigger_type="scheduled",
+                retry_count=0,
+            )
+            task = self.tasks.create(task)
+            get_normal_queue_client().send_task(str(task.id))
+
+        return job
 
     def list_jobs(
         self,
