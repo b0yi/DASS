@@ -147,7 +147,6 @@ class JobService:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Circular dependency detected",
             )
-
         job = self.jobs.create(job)
 
         # 建立普通的單次任務 (normal job) 時，如果它沒有任何上游依賴，就直接發射它
@@ -266,7 +265,6 @@ class JobService:
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="Circular dependency detected",
                 )
-
         return self.jobs.update(job)
 
     def delete_job(self, job_id: str) -> None:
