@@ -86,7 +86,11 @@ class JobRepository:
         stmt = select(Job)
         if conditions:
             stmt = stmt.where(*conditions)
-        stmt = stmt.order_by(Job.created_at.desc()).limit(page_size).offset((page - 1) * page_size)
+        stmt = (
+            stmt.order_by(Job.created_at.desc())
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+        )
         jobs = list(self.db.scalars(stmt).all())
         return jobs, total
 
@@ -120,3 +124,26 @@ class JobRepository:
 
         result = self.db.execute(stmt)
         return result.scalars().all()
+
+    def get_all_descendants(self, job_id: str) -> set[str]:
+        """使用 Recursive CTE 找出指定 Job 的所有後代 (包含無窮層下游)"""
+        from app.models.job import job_dependencies
+
+        # 1. Base Query: 找出第一層下游
+        base_query = (
+            select(job_dependencies.c.downstream_job_id)
+            .where(job_dependencies.c.upstream_job_id == job_id)
+            .cte(name="descendants", recursive=True)
+        )
+
+        # 2. Recursive Query: 不斷 JOIN 找出下游的下游
+        recursive_query = select(job_dependencies.c.downstream_job_id).join(
+            base_query,
+            job_dependencies.c.upstream_job_id == base_query.c.downstream_job_id,
+        )
+
+        # 3. 結合並查詢 (必須使用 union 而非 union_all，避免資料庫在遇到迴圈時無限遞迴)
+        cte = base_query.union(recursive_query)
+        results = self.db.execute(select(cte)).all()
+
+        return {str(row[0]) for row in results}

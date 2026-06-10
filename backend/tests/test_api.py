@@ -215,3 +215,87 @@ def test_get_task_details(client, db_session):
     assert body["status"] == "success"
     assert body["stdout"] == "job output"
     assert body["stderr"] == ""
+
+
+def test_circular_dependency_is_rejected(client):
+    # 1. 建立 Job A
+    resp_a = client.post(
+        "/api/v1/jobs",
+        json={
+            "name": "dag-job-a",
+            "action_type": "shell",
+            "action_config": {"command": "echo A", "timeout_seconds": 5},
+            "enabled": True,
+            "concurrency_policy": "allow",
+            "max_retries": 0,
+        },
+    )
+    assert resp_a.status_code == 200
+    job_a_id = resp_a.json()["id"]
+
+    # 2. 建立 Job B (上游是 A)
+    resp_b = client.post(
+        "/api/v1/jobs",
+        json={
+            "name": "dag-job-b",
+            "action_type": "shell",
+            "action_config": {"command": "echo B", "timeout_seconds": 5},
+            "enabled": True,
+            "concurrency_policy": "allow",
+            "max_retries": 0,
+            "upstream_job_ids": [job_a_id],
+        },
+    )
+    assert resp_b.status_code == 200
+    job_b_id = resp_b.json()["id"]
+
+    # 3. 建立 Job C (上游是 B)
+    resp_c = client.post(
+        "/api/v1/jobs",
+        json={
+            "name": "dag-job-c",
+            "action_type": "shell",
+            "action_config": {"command": "echo C", "timeout_seconds": 5},
+            "enabled": True,
+            "concurrency_policy": "allow",
+            "max_retries": 0,
+            "upstream_job_ids": [job_b_id],
+        },
+    )
+    assert resp_c.status_code == 200
+    job_c_id = resp_c.json()["id"]
+
+    # 目前圖形為: A -> B -> C
+    
+    # 測試 1: 試圖讓 A 依賴 C (C -> A)，形成 A -> B -> C -> A
+    resp_cycle_1 = client.put(
+        f"/api/v1/jobs/{job_a_id}",
+        json={"upstream_job_ids": [job_c_id]},
+    )
+    assert resp_cycle_1.status_code == 422
+    assert "Circular dependency detected" in resp_cycle_1.json()["detail"]
+
+    # 測試 2: 試圖讓 C 觸發 A (C -> A)，形成 A -> B -> C -> A
+    resp_cycle_2 = client.put(
+        f"/api/v1/jobs/{job_c_id}",
+        json={"downstream_job_ids": [job_a_id]},
+    )
+    assert resp_cycle_2.status_code == 422
+    assert "Circular dependency detected" in resp_cycle_2.json()["detail"]
+
+    # 測試 3: 試圖在建立新 Job D 的瞬間就自我形成迴圈 (A -> D -> A)
+    resp_cycle_3 = client.post(
+        "/api/v1/jobs",
+        json={
+            "name": "dag-job-d",
+            "action_type": "shell",
+            "action_config": {"command": "echo D", "timeout_seconds": 5},
+            "enabled": True,
+            "concurrency_policy": "allow",
+            "max_retries": 0,
+            "upstream_job_ids": [job_a_id],
+            "downstream_job_ids": [job_a_id],
+        },
+    )
+    assert resp_cycle_3.status_code == 422
+    assert "Circular dependency detected" in resp_cycle_3.json()["detail"]
