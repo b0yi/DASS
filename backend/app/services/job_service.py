@@ -136,6 +136,17 @@ class JobService:
             )
             job.downstream_jobs.extend(downstreams)
 
+        # 把剛建立的關聯 flush 進資料庫 (但尚未 commit) 以供 Recursive CTE 驗證
+        self.db.add(job)
+        self.db.flush()
+        
+        # 進行迴圈偵測：如果這個新 Job 自己出現在自己的無窮後代中，代表產生了迴圈
+        descendants = self.jobs.get_all_descendants(str(job.id))
+        if str(job.id) in descendants:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Circular dependency detected",
+            )
         job = self.jobs.create(job)
 
         # 建立普通的單次任務 (normal job) 時，如果它沒有任何上游依賴，就直接發射它。
@@ -248,6 +259,16 @@ class JobService:
                 self.db.query(Job).filter(Job.id.in_(payload.downstream_job_ids)).all()
             )
             job.downstream_jobs = downstreams
+
+        # 只要有動到上下游關聯，就 flush 並進行迴圈驗證
+        if payload.upstream_job_ids is not None or payload.downstream_job_ids is not None:
+            self.db.flush()
+            descendants = self.jobs.get_all_descendants(str(job.id))
+            if str(job.id) in descendants:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Circular dependency detected",
+                )
 
         job = self.jobs.update(job)
 
