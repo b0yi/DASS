@@ -149,12 +149,15 @@ class JobService:
             )
         job = self.jobs.create(job)
 
-        # 建立普通的單次任務 (normal job) 時，如果它沒有任何上游依賴，就直接發射它
+        # 建立普通的單次任務 (normal job) 時，如果它沒有任何上游依賴，就直接發射它。
+        # 這是「建立即執行」的隨需觸發，scheduler 完全沒參與，所以 trigger_type 標 manual。
+        # 不可標 scheduled——否則會被當成排程器派發，污染 dashboard 的 Scheduler-dispatched /
+        # Scheduled dispatches(/min)指標（那兩個面板查的就是 trigger_type="scheduled"）。
         if job.job_type == "normal" and job.enabled and not job.upstream_jobs:
             task = Task(
                 job_id=str(job.id),
                 status="pending",
-                trigger_type="scheduled",
+                trigger_type="manual",
                 retry_count=0,
             )
             task = self.tasks.create(task)
@@ -210,6 +213,7 @@ class JobService:
 
         job = self.get_job(job_id)
         data = payload.model_dump(exclude_unset=True)
+        was_enabled = job.enabled
 
         cron_expression = data.get("cron_expression", job.cron_expression)
         normalized_cron_expression = _normalize_cron_expression(cron_expression)
@@ -265,7 +269,21 @@ class JobService:
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="Circular dependency detected",
                 )
-        return self.jobs.update(job)
+
+        job = self.jobs.update(job)
+
+        # 與 create_job() 保持一致：normal one-time job 一旦被啟用且沒有上游依賴，就立刻發射。
+        if not was_enabled and job.enabled and job.job_type == "normal" and not job.upstream_jobs:
+            task = Task(
+                job_id=str(job.id),
+                status="pending",
+                trigger_type="scheduled",
+                retry_count=0,
+            )
+            task = self.tasks.create(task)
+            get_normal_queue_client().send_task(str(task.id))
+
+        return job
 
     def delete_job(self, job_id: str) -> None:
         """刪除指定 Job。

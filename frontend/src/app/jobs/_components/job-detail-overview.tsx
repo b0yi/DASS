@@ -1,9 +1,6 @@
 "use client"
 
-import {
-  formatCronExpression,
-  formatDateTime,
-} from "../_lib/jobs-list.utils"
+import { formatCronExpression, formatDateTime } from "../_lib/jobs-list.utils"
 
 function formatActionConfig(actionConfig: Record<string, unknown>) {
   const entries = Object.entries(actionConfig ?? {})
@@ -15,11 +12,16 @@ function formatActionConfig(actionConfig: Record<string, unknown>) {
   return JSON.stringify(actionConfig, null, 2)
 }
 
+function formatDependencyIds(values: string[]) {
+  return values.length > 0 ? values.join("\n") : "None"
+}
+
 export function JobDetailOverview({
   createdAt,
   cronExpression,
   maxRetries,
   nextFireAt,
+  upstreamJobIds,
   tasksCount,
   updatedAt,
   actionConfig,
@@ -28,6 +30,7 @@ export function JobDetailOverview({
   cronExpression: string | null
   maxRetries: number
   nextFireAt: string | null
+  upstreamJobIds: string[]
   tasksCount: number
   updatedAt: string
   actionConfig: Record<string, unknown>
@@ -73,6 +76,15 @@ export function JobDetailOverview({
           </p>
           <pre className="mt-3 overflow-x-auto rounded-2xl border border-line bg-panel p-4 text-xs text-fg">
             {formatActionConfig(actionConfig)}
+          </pre>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-panel-strong p-4">
+          <p className="text-xs uppercase tracking-[0.24em] text-muted">
+            Upstream dependencies
+          </p>
+          <pre className="mt-3 whitespace-pre-wrap break-words rounded-2xl border border-line bg-panel p-4 font-mono text-xs text-fg">
+            {formatDependencyIds(upstreamJobIds)}
           </pre>
         </div>
       </section>
