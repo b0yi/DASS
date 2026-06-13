@@ -201,7 +201,7 @@ class TestSchedulerService:
         """A→B→C：A 成功只觸發 B；要等 B 也成功才觸發 C（一次傳播一層）。"""
         queue = MemoryQueueClient()
         factory = sessionmaker(bind=db_session.get_bind())
-        service = SchedulerService(factory, queue)
+        service = SchedulerService(factory, queue, queue)
 
         a = _job(db_session, name="A")
         b = _job(db_session, name="B")
@@ -232,7 +232,7 @@ class TestSchedulerService:
         """A↔B 互為上下游時，單一成功事件只觸發有限次，不會自我延續成無限迴圈。"""
         queue = MemoryQueueClient()
         factory = sessionmaker(bind=db_session.get_bind())
-        service = SchedulerService(factory, queue)
+        service = SchedulerService(factory, queue, queue)
 
         a = _job(db_session, name="A")
         b = _job(db_session, name="B")
